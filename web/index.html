@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rizzo Flow · Gemini · Liquid AI · Confronto classificazione</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/assets/style.css">
+  <script src="/assets/demo.js" defer></script>
+</head>
+<body>
+  <main>
+    <header><a class="brand" href="/">rizzo<span>flow</span><small>MODEL COMPARISON</small></a><span id="connection" class="connection">Connessione…</span></header>
+    <section class="intro">
+      <p class="eyebrow">DECISIONI LOCALI · DECISIONI CLOUD · GENERAZIONE LLM</p>
+      <h1>Un input. Tre modelli.</h1>
+      <p class="lead">Confronta Rizzo Flow, Gemini 3.5 Flash-Lite e Liquid AI d1 sulla stessa domanda,<br>con lo stesso contesto e le stesse classi.</p>
+    </section>
+    <section class="panel" aria-labelledby="input-title">
+      <div class="panel-heading"><h2 id="input-title">01 <span>Prepara il confronto</span></h2><div class="presets"><button type="button" data-example="ticket">Ticket</button><button type="button" data-example="sentiment">Sentiment</button><button type="button" data-example="document">Documenti</button></div></div>
+      <form id="compare-form">
+        <div class="input-grid">
+          <div>
+            <label for="question">Domanda o istruzione di classificazione <span class="required">*</span></label>
+            <textarea id="question" rows="2" maxlength="8000" required placeholder="Es. Quale reparto deve gestire questa richiesta?"></textarea>
+            <label for="context">Contesto testuale <span class="optional">facoltativo</span></label>
+            <textarea id="context" rows="6" maxlength="32000" placeholder="Incolla il testo, la richiesta o le informazioni utili alla classificazione."></textarea>
+            <div class="field-line"><span class="hint">Puoi anche includere tutte le informazioni nella domanda.</span><span id="count" class="tag"></span></div>
+            <label for="files">File di contesto <span class="optional">facoltativi</span></label>
+            <div class="upload"><input id="files" type="file" multiple accept=".txt,.md,.csv,.json,.tsv,.log,.pdf,.docx"><p class="hint">TXT, MD, CSV, JSON, TSV, LOG, DOCX e PDF con testo selezionabile.<br>Massimo 5 file · 5 MB per file · 10 MB totali. Immagini e OCR esclusi.</p></div>
+            <ul id="file-list" class="file-list" aria-label="File selezionati"></ul>
+          </div>
+          <div>
+            <div class="classes-heading"><label>Classi possibili <span class="required">*</span></label><span class="tag">DA 2 A 25</span></div>
+            <p class="hint">Nome della classe e descrizione opzionale per chiarirne il significato.</p>
+            <div id="classes"></div>
+            <button id="add-class" type="button" class="secondary">+ Aggiungi classe</button>
+            <label class="checkbox-label"><input id="allow-abstain" type="checkbox" checked>Consenti la risposta “Dati insufficienti”</label>
+            <details id="gemini-settings" class="settings" open>
+              <summary>Impostazioni Gemini <span id="key-state">API key da impostare</span></summary>
+              <label for="api-key">API key Gemini</label>
+              <div class="key-row"><input id="api-key" type="password" autocomplete="off" spellcheck="false" maxlength="256" placeholder="Inserisci la tua API key"><button id="show-key" type="button" class="secondary" aria-label="Mostra API key">Mostra</button></div>
+              <p class="hint">Resta in memoria nella pagina: non viene salvata sul server o nel browser. <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">Crea una chiave ↗</a></p>
+              <label for="billing-tier">Piano API associato alla chiave</label>
+              <select id="billing-tier"><option value="paid">A pagamento · stima dai token utilizzati</option><option value="free">Gratuito · selezionato da me</option></select>
+              <p id="pricing" class="hint">Gemini 3.5 Flash-Lite · caricamento tariffe…</p>
+            </details>
+            <details id="liquid-settings" class="settings" open>
+              <summary>Impostazioni Liquid AI <span id="liquid-key-state">API key da impostare</span></summary>
+              <label for="liquid-api-key">API key Liquid AI</label>
+              <div class="key-row"><input id="liquid-api-key" type="password" autocomplete="off" spellcheck="false" maxlength="256" placeholder="Inserisci la tua API key Liquid"><button id="show-liquid-key" type="button" class="secondary" aria-label="Mostra API key Liquid">Mostra</button></div>
+              <p class="hint">Resta solo in memoria nella pagina, come la chiave Gemini. <a href="https://console.liquid.ai" target="_blank" rel="noreferrer">Crea una chiave · Dashboard → API Keys ↗</a></p>
+              <label for="liquid-model-select">Modello Liquid</label>
+              <select id="liquid-model-select"><option value="d1">d1 · stima del costo dai token utilizzati</option><option value="d1:free">d1:free · se disponibile per la mia chiave</option></select>
+              <p id="liquid-pricing" class="hint">Liquid AI d1 · caricamento tariffe…</p>
+            </details>
+          </div>
+        </div>
+        <div class="submit-row"><p class="hint">Con una chiave impostata, il confronto invia domanda, contesto e testo estratto dai file al relativo servizio: Google o Liquid AI.<br>Tutti i modelli ricevono lo stesso contenuto testuale; i file non vengono conservati dalla demo.</p><button id="run" class="run" type="submit"><span>Confronta i modelli</span><span aria-hidden="true">↗</span></button></div>
+      </form>
+      <p id="error" role="alert" hidden></p>
+    </section>
+    <section class="comparison" aria-labelledby="results-title">
+      <div class="results-heading"><h2 id="results-title">02 <span>Risultati del confronto</span></h2><span id="agreement" class="agreement">In attesa di un confronto</span></div>
+      <p id="result-context" class="hint">Ogni scheda si aggiorna appena il relativo modello termina.</p>
+      <div class="comparison-grid">
+        <article id="rizzo-card" class="panel provider-card" aria-busy="false">
+          <div class="provider-heading"><h3>Rizzo Flow</h3><span class="provider-tag">LOCALE · TYPED DECISIONS</span></div>
+          <p id="rizzo-model" class="model-label">Spark-X2.5 · 4B</p>
+          <div id="rizzo-result" class="provider-result" aria-live="polite"><p class="empty-text">La classificazione apparirà qui.</p></div>
+        </article>
+        <article id="liquid-card" class="panel provider-card liquid" aria-busy="false">
+          <div class="provider-heading"><h3>Liquid AI</h3><span class="provider-tag">CLOUD · TYPED DECISIONS</span></div>
+          <p id="liquid-model" class="model-label">d1 · Choice</p>
+          <div id="liquid-result" class="provider-result" aria-live="polite"><p class="empty-text">Imposta la API key per confrontare Liquid AI.</p></div>
+        </article>
+        <article id="gemini-card" class="panel provider-card gemini" aria-busy="false">
+          <div class="provider-heading"><h3>Gemini</h3><span class="provider-tag">CLOUD · STRUCTURED JSON</span></div>
+          <p id="gemini-model" class="model-label">gemini-3.5-flash-lite · thinking minimal</p>
+          <div id="gemini-result" class="provider-result" aria-live="polite"><p class="empty-text">Imposta la API key per confrontare Gemini.</p></div>
+        </article>
+      </div>
+      <p class="comparison-note">Tempi misurati nel backend, da avvio chiamata a risposta validata; Gemini e Liquid includono la rete verso il servizio. Estrazione dei file esclusa e misurata separatamente. Rizzo Flow e Liquid non generano testo: le probabilità di Rizzo non sono calibrate, Liquid le dichiara calibrate. Gemini restituisce una classe, senza probabilità confrontabili.</p>
+    </section>
+    <section class="api-panel" aria-label="Dettagli del confronto">
+      <div class="api-heading"><h2>Dentro il confronto</h2><span id="preparation" class="tag">STESSO INPUT PER TUTTI</span></div>
+      <details><summary>Input condiviso e testo estratto</summary><pre id="request-json"></pre></details>
+      <details><summary>Risultati e dettaglio costi</summary><pre id="response-json">Esegui il confronto per vedere le risposte.</pre></details>
+    </section>
+    <footer><span>Rizzo Flow × Gemini 3.5 Flash-Lite × Liquid AI d1</span><nav aria-label="Risorse"><a href="/playground">Playground Rizzo ↗</a><a href="/docs">API locale ↗</a><a href="https://ai.google.dev/gemini-api/docs/pricing" target="_blank" rel="noreferrer">Tariffe Gemini ↗</a><a href="https://www.liquid.ai/blog/d1-decision-model" target="_blank" rel="noreferrer">Liquid d1 ↗</a></nav></footer>
+  </main>
+</body>
+</html>

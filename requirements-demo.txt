@@ -1,0 +1,2 @@
+# Estrazione locale del testo dei PDF; le altre dipendenze sono in upstream/uv.lock.
+pypdf==6.1.1

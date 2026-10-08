@@ -1,0 +1,29 @@
+{
+  "state": "Non riesco ad accedere al mio account dopo aver cambiato la password. Devo consegnare un lavoro entro oggi e sono completamente bloccato. L'abbonamento è attivo e il pagamento è regolare.",
+  "questions": {
+    "urgent": {
+      "type": "boolean",
+      "instructions": "Il ticket richiede un intervento urgente, perché il cliente è bloccato o ha una scadenza imminente?",
+      "true_description": "Sì: attività bloccata o scadenza imminente.",
+      "false_description": "No: nessun blocco né scadenza imminente."
+    },
+    "department": {
+      "type": "choice",
+      "instructions": "Quale reparto deve gestire il problema principale del cliente?",
+      "options": [
+        {"id": "access", "description": "Accesso: problemi di login, password o accesso all'account."},
+        {"id": "billing", "description": "Pagamenti: fatture, addebiti, rimborsi o abbonamenti."},
+        {"id": "sales", "description": "Vendite: informazioni commerciali o acquisto di nuovi prodotti."}
+      ]
+    },
+    "priority": {
+      "type": "score",
+      "instructions": "Valuta la priorità di assistenza del ticket sulla seguente scala da 0 a 2.",
+      "levels": [
+        "Bassa (0): richiesta informativa, nessun blocco e nessuna scadenza.",
+        "Media (1): inconveniente o attività rallentata, senza un blocco urgente.",
+        "Alta (2): attività completamente bloccata o scadenza entro oggi."
+      ]
+    }
+  }
+}
