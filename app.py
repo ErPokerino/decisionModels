@@ -1,4 +1,4 @@
-"""Confronto Rizzo Flow / Gemini 3.5 Flash-Lite / Liquid AI d1."""
+"""Confronto Rizzo Flow / Gemini 3.5 Flash-Lite / Liquid AI d1 / CLM."""
 
 import argparse
 import os
@@ -15,6 +15,7 @@ from rizzo_flow.loader import load_backend
 
 from comparison import Case, GeminiInput, LiquidInput, PrepareInput, PRICING, GEMINI_MODEL, LIQUID_MODEL, LIQUID_PRICING
 from comparison import gemini_classify, liquid_classify, local_classify, prepare
+from comparison import CLMInput, CLMConnection, CLM_MODEL, CLM_CHECKPOINT, CLM_BASE_URL, clm_classify, clm_health
 
 ROOT = Path(__file__).resolve().parent
 
@@ -48,7 +49,8 @@ def build_app(engine):
     @app.get("/api/config")
     def config():
         return {"gemini_model": GEMINI_MODEL, "pricing": PRICING, "context_tokens": engine.ctx,
-                "liquid_model": LIQUID_MODEL, "liquid_pricing": LIQUID_PRICING}
+                "liquid_model": LIQUID_MODEL, "liquid_pricing": LIQUID_PRICING,
+                "clm_model": CLM_MODEL, "clm_checkpoint": CLM_CHECKPOINT, "clm_base_url": CLM_BASE_URL}
 
     @app.post("/api/prepare")
     def prepare_case(data: PrepareInput):
@@ -68,6 +70,14 @@ def build_app(engine):
     @app.post("/api/classify/liquid")
     def classify_liquid(data: LiquidInput, x_liquid_api_key: str = Header(default="")):
         return liquid_classify(data.case, x_liquid_api_key.strip(), data.model)
+
+    @app.post("/api/clm/health")
+    def check_clm(data: CLMConnection, x_clm_api_key: str = Header(default="")):
+        return clm_health(data.base_url, x_clm_api_key.strip())
+
+    @app.post("/api/classify/clm")
+    def classify_clm(data: CLMInput, x_clm_api_key: str = Header(default="")):
+        return clm_classify(data, x_clm_api_key.strip())
 
     return app
 

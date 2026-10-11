@@ -3,10 +3,13 @@
 import base64
 import binascii
 import io
+import ipaddress
 import json
 import math
+import re
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import zipfile
 from pathlib import PurePath
@@ -18,6 +21,9 @@ from rizzo_flow.schema import Request as NativeRequest
 
 GEMINI_MODEL = "gemini-3.5-flash-lite"
 LIQUID_MODEL = "d1"
+CLM_MODEL = "clm-latest"
+CLM_CHECKPOINT = "Contrastive-LM/CLM-v0.1-8B"
+CLM_BASE_URL = "http://127.0.0.1:8700"
 LIQUID_PRICING = {
     "input_per_million_usd": 0.04,
     "output_per_million_usd": 0.0,
@@ -112,6 +118,49 @@ class GeminiInput(Strict):
 class LiquidInput(Strict):
     case: Case
     model: Literal["d1", "d1:free"] = LIQUID_MODEL
+
+
+def clm_url(value):
+    value = value.strip().rstrip("/")
+    try:
+        parsed = urllib.parse.urlsplit(value)
+        host, port = parsed.hostname, parsed.port
+        if not host or parsed.scheme not in {"http", "https"} or parsed.username or parsed.password or parsed.query or parsed.fragment:
+            raise ValueError()
+        if any(ord(char) <= 32 or ord(char) >= 127 for char in value) or "\\" in value:
+            raise ValueError()
+        try:
+            loopback = ipaddress.ip_address(host).is_loopback
+        except ValueError:
+            loopback = host.lower() == "localhost"
+        if parsed.scheme == "http" and not loopback:
+            raise ValueError()
+        if parsed.path.endswith("/v1/systemone"):
+            value = value[:-len("/v1/systemone")]
+        return value
+    except ValueError:
+        raise ValueError("Usa un URL base HTTPS oppure HTTP su localhost, senza credenziali, query o frammenti.") from None
+
+
+class CLMConnection(Strict):
+    base_url: str = Field(default=CLM_BASE_URL, min_length=1, max_length=2048)
+
+    @model_validator(mode="after")
+    def valid_connection(self):
+        self.base_url = clm_url(self.base_url)
+        return self
+
+
+class CLMInput(CLMConnection):
+    case: Case
+    billing_mode: Literal["self_hosted", "unknown", "per_token"] = "self_hosted"
+    input_per_million_usd: float | None = Field(default=None, ge=0, le=100000, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def valid_pricing(self):
+        if self.billing_mode == "per_token" and self.input_per_million_usd is None:
+            raise ValueError("Inserisci la tariffa CLM per milione di token input, oppure scegli costo non noto.")
+        return self
 
 
 def extract_text(name, content):
@@ -396,5 +445,126 @@ def liquid_classify(case, api_key, model=LIQUID_MODEL, transport=liquid_http):
             result["confidence"] = confidence
     except (ValueError, TypeError, KeyError) as error:
         result["error"] = str(error).replace(api_key, "[API KEY]")
+    result["latency_ms"] = (time.perf_counter() - started) * 1000
+    return result
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def clm_http(url, api_key, body=None, timeout=120):
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    request = urllib.request.Request(url, headers=headers,
+        data=None if body is None else json.dumps(body, ensure_ascii=False).encode("utf-8"),
+        method="GET" if body is None else "POST")
+    try:
+        # Non inoltrare la chiave ad altri host tramite redirect.
+        with urllib.request.build_opener(_NoRedirect()).open(request, timeout=timeout) as response:
+            return json.load(response)
+    except urllib.error.HTTPError as error:
+        messages = {401: "API key CLM richiesta o non valida.", 403: "Accesso CLM non consentito.",
+                    404: "Endpoint CLM non trovato: verifica l'URL base.",
+                    422: "Richiesta o modello clm-latest non accettato dal servizio.",
+                    429: "Limite di richieste CLM superato.",
+                    502: "Encoder Qwen3-8B non disponibile o errore di embedding."}
+        if error.code == 422:
+            try:
+                detail = json.loads(error.read(4096)).get("detail", "")
+                if isinstance(detail, str) and re.fullmatch(r"CLM: testo oltre [0-9]+ token; riduci il contesto o i file\.", detail):
+                    raise ValueError(detail) from None
+            except (json.JSONDecodeError, AttributeError, UnicodeDecodeError):
+                pass
+        raise ValueError(f"CLM HTTP {error.code}: {messages.get(error.code, 'Errore del servizio CLM; controlla anche eventuali redirect.')} Nessun retry automatico.") from None
+    except (urllib.error.URLError, TimeoutError, OSError):
+        raise ValueError("Servizio CLM non raggiungibile o timeout. Per il servizio locale esegui start-clm.ps1 e attendi il caricamento; per un server remoto verifica l'URL.") from None
+
+
+def clm_health(base_url, api_key="", transport=clm_http):
+    started = time.perf_counter()
+    try:
+        base_url = clm_url(base_url)
+        if api_key and (len(api_key) > 256 or any(not (33 <= ord(char) <= 126) for char in api_key)):
+            raise ValueError("Formato API key CLM non valido.")
+        health = transport(base_url + "/health", api_key, timeout=8)
+        if not isinstance(health, dict) or health.get("ok") is not True:
+            raise ValueError("L'URL non restituisce lo stato del servizio CLM ufficiale.")
+        if health.get("mock"):
+            raise ValueError("Il servizio CLM è in modalità simulata: la demo richiede inferenza reale.")
+        if health.get("embedder") is not True:
+            raise ValueError("CLM è avviato, ma l'encoder Qwen3-8B non è raggiungibile.")
+        if CLM_MODEL not in health.get("models", []):
+            raise ValueError("Il servizio non espone clm-latest. Carica il checkpoint CLM-v0.1-8B ufficiale.")
+        return {"status": "ready", "model": CLM_MODEL, "check_ms": (time.perf_counter() - started) * 1000,
+                "runtime": str(health.get("runtime", "Servizio CLM esterno"))[:160],
+                "max_tokens": health.get("max_tokens"), "truncation": health.get("truncation")}
+    except (ValueError, TypeError, KeyError) as error:
+        message = str(error)
+        return {"status": "unavailable", "error": message.replace(api_key, "[API KEY]") if api_key else message,
+                "check_ms": (time.perf_counter() - started) * 1000}
+
+
+def clm_body(case):
+    body = liquid_body(case, CLM_MODEL)
+    body["temperature"] = 1.0
+    return body
+
+
+def clm_cost(usage, mode, rate):
+    if mode == "self_hosted":
+        return {"usd": 0.0, "kind": "self_hosted", "note": "Servizio autogestito selezionato: nessun costo API; hardware, energia e hosting esclusi."}
+    if mode == "per_token" and isinstance(usage, dict) and type(usage.get("input_tokens")) is int and usage["input_tokens"] >= 0:
+        return {"usd": usage["input_tokens"] * rate / 1_000_000, "kind": "estimated",
+                "billable_input_tokens": usage["input_tokens"], "input_per_million_usd": rate,
+                "note": "Stima dalla tariffa inserita e dai token riportati dal servizio, influenzati dalla cache. Verifica il contratto del tuo hosting."}
+    return {"usd": None, "kind": "unavailable", "note": "Tariffa o consumo CLM non noto: costo non determinabile."}
+
+
+def clm_classify(data, api_key="", transport=clm_http, checker=clm_health):
+    result = {"provider": "clm", "model": CLM_MODEL, "checkpoint": CLM_CHECKPOINT,
+              "status": "unavailable", "classification": None, "latency_ms": None,
+              "cost": {"usd": None, "kind": "not_run", "note": "Nessuna classificazione CLM completata."}}
+    health = checker(data.base_url, api_key)
+    result["health_check_ms"] = health.get("check_ms")
+    if health.get("runtime"):
+        result["runtime"] = health["runtime"]
+    if health.get("status") != "ready":
+        return {**result, "error": health.get("error", "Servizio CLM non disponibile.")}
+    started = time.perf_counter()
+    result["status"] = "error"
+    result["cost"] = {"usd": None, "kind": "unavailable", "note": "Costo non determinabile."}
+    try:
+        raw = transport(data.base_url + "/v1/systemone", api_key, body=clm_body(data.case),
+                        timeout=600 if "INT8 CPU" in health.get("runtime", "") else 120)
+        if not isinstance(raw, dict) or raw.get("model") != CLM_MODEL:
+            raise ValueError("Il servizio non ha restituito una risposta del modello clm-latest richiesto.")
+        usage = raw.get("usage", {})
+        result["cost"] = clm_cost(usage, data.billing_mode, data.input_per_million_usd)
+        if isinstance(usage, dict):
+            result["usage"] = {key: usage[key] for key in ("input_tokens", "output_tokens", "billing_units")
+                               if type(usage.get(key)) is int and usage[key] >= 0}
+        answer = raw["answers"]["classification"]
+        if not isinstance(answer, dict) or answer.get("type") != "choice":
+            raise ValueError("La risposta CLM non rispetta lo schema Choice.")
+        class_id, probabilities = answer["choice"], answer["probabilities"]
+        label = data.case.label(class_id)
+        criteria = clm_body(data.case)["questions"]["classification"]["criteria"]
+        if not isinstance(probabilities, dict) or set(probabilities) != set(criteria):
+            raise ValueError("CLM ha restituito classi non ammesse o probabilità mancanti.")
+        if any(type(value) not in (int, float) or not math.isfinite(value) or not 0 <= value <= 1
+               for value in probabilities.values()) or abs(sum(probabilities.values()) - 1) > 0.01:
+            raise ValueError("Distribuzione di probabilità CLM non valida.")
+        if probabilities[class_id] < max(probabilities.values()) - 1e-6:
+            raise ValueError("La classe CLM non corrisponde alla probabilità più alta.")
+        result.update(status="insufficient_evidence" if class_id == "__insufficient__" else "ok",
+                      classification=None if class_id == "__insufficient__" else label, class_id=class_id,
+                      probabilities=[{"label": data.case.label(key), "probability": value} for key, value in probabilities.items()])
+        result["note"] = "Probabilità relative ai candidati, non calibrate. I limiti e l'eventuale troncamento del testo dipendono dal servizio CLM."
+    except (ValueError, TypeError, KeyError) as error:
+        message = str(error)
+        result["error"] = message.replace(api_key, "[API KEY]") if api_key else message
     result["latency_ms"] = (time.perf_counter() - started) * 1000
     return result

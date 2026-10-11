@@ -8,6 +8,7 @@ from urllib.request import Request, urlopen
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", type=int, default=8017)
+    parser.add_argument("--require-clm", action="store_true", help="Fallisce se CLM non esegue una classificazione reale")
     args = parser.parse_args()
     base = f"http://127.0.0.1:{args.port}"
     with urlopen(base, timeout=10) as response:
@@ -44,7 +45,22 @@ def main():
     liquid = post("/api/classify/liquid", {"case": prepared["case"], "model": "d1"})
     assert liquid["status"] == "skipped" and liquid["cost"]["usd"] is None
     assert liquid["latency_ms"] is None
-    print("Confronto HTTP verificato: classificazione locale reale; Gemini e Liquid richiedono le rispettive API key.")
+    health = post("/api/clm/health", {"base_url": "http://127.0.0.1:8700"})
+    if args.require_clm:
+        assert health["status"] == "ready", health.get("error", "CLM non pronto")
+    clm = post("/api/classify/clm", {"case": prepared["case"], "base_url": "http://127.0.0.1:8700"})
+    if health["status"] == "unavailable":
+        assert clm["status"] == "unavailable" and clm["latency_ms"] is None and clm["cost"]["usd"] is None
+        print("CLM: servizio non attivo, stato esplicito e nessun risultato simulato.")
+    else:
+        assert clm["status"] in {"ok", "insufficient_evidence"} and clm["latency_ms"] > 0
+        assert clm["cost"]["usd"] == 0
+        assert abs(sum(item["probability"] for item in clm["probabilities"]) - 1) < 0.01
+        print("CLM: classificazione verificata sul servizio configurato.")
+        print(json.dumps({"classification": clm["classification"], "status": clm["status"],
+                          "latency_ms": clm["latency_ms"], "cost": clm["cost"],
+                          "runtime": clm.get("runtime")}, ensure_ascii=False))
+    print("Confronto HTTP verificato: Rizzo reale; Gemini e Liquid senza chiavi; collegamento CLM.")
     print(json.dumps({"status": "ok", "model": result["model"],
                       "timing": result["timing"], "answers": {
                           key: {field: value for field, value in answer.items()

@@ -1,6 +1,6 @@
 "use strict";
 const $ = (id) => document.getElementById(id);
-const providers = ["rizzo", "gemini", "liquid"];
+const providers = ["rizzo", "gemini", "liquid", "clm"];
 const examples = {
   ticket: { question: "Quale reparto deve gestire il problema principale del cliente?", context: "Non riesco ad accedere al mio account dopo aver cambiato la password. Devo consegnare un lavoro entro oggi e sono completamente bloccato. L'abbonamento è attivo e il pagamento è regolare.", classes: [
     {label: "Accesso", description: "Problemi di login, password o accesso all'account."},
@@ -74,7 +74,7 @@ function readFile(file) {
   });
 }
 async function post(url, body, headers = {}) {
-  const response = await fetch(url, {method: "POST", headers: {"Content-Type": "application/json", ...headers}, body: JSON.stringify(body), signal: AbortSignal.timeout(300000)});
+  const response = await fetch(url, {method: "POST", headers: {"Content-Type": "application/json", ...headers}, body: JSON.stringify(body), signal: AbortSignal.timeout(url === "/api/classify/clm" ? 660000 : 300000)});
   const data = await response.json();
   if (!response.ok) { let detail = data.detail; if (Array.isArray(detail)) detail = detail.map((item) => item.msg).join("; "); throw new Error(typeof detail === "string" ? detail : `Richiesta non valida (HTTP ${response.status}).`); }
   return data;
@@ -90,12 +90,12 @@ function agreement() {
   const completed = providers.map((provider) => results[provider]).filter((result) => accepted.has(result.status));
   const partial = completed.length < providers.length;
   const match = completed.length >= 2 && completed.every((result) => result.status === completed[0].status && result.classification === completed[0].classification);
-  $("agreement").textContent = completed.length < 2 ? "Confronto parziale" : `${match ? "Stessa classificazione" : "Classificazioni diverse"}${partial ? ` · ${completed.length}/3 modelli` : ""}`;
+  $("agreement").textContent = completed.length < 2 ? "Confronto parziale" : `${match ? "Stessa classificazione" : "Classificazioni diverse"}${partial ? ` · ${completed.length}/${providers.length} modelli` : ""}`;
   $("agreement").className = `agreement ${completed.length < 2 ? "" : match ? "match" : "different"}`;
 }
 function renderProvider(provider, result) {
   const output = $(`${provider}-result`); output.replaceChildren(); output.append(node("p", "result-label", "CLASSIFICAZIONE"));
-  const value = result.status === "ok" ? result.classification : result.status === "insufficient_evidence" ? "Dati insufficienti" : result.status === "uncertain" ? "Incerto" : result.status === "skipped" ? "Da configurare" : "Non completata";
+  const value = result.status === "ok" ? result.classification : result.status === "insufficient_evidence" ? "Dati insufficienti" : result.status === "uncertain" ? "Incerto" : result.status === "skipped" ? "Da configurare" : result.status === "unavailable" ? "Servizio non disponibile" : "Non completata";
   output.append(node("p", "classification", value));
   const metrics = node("div", "metrics"), cost = result.cost?.usd;
   const latency = result.latency_ms == null ? "—" : result.latency_ms < 1000 ? `${Math.round(result.latency_ms)} ms` : `${(result.latency_ms / 1000).toFixed(2)} s`;
@@ -115,18 +115,25 @@ function renderProvider(provider, result) {
     if (result.usage) output.append(node("p", "cost-note", `Token: ${result.usage.input_tokens ?? "—"} input · ${result.usage.output_tokens ?? "—"} output.`));
     if (result.confidence != null) output.append(node("p", "cost-note", `Confidenza restituita da Liquid: ${(result.confidence * 100).toFixed(1)}%.`));
   }
+  if (provider === "clm") {
+    if (result.runtime) $("clm-model").textContent = `CLM-v0.1-8B · ${result.runtime}`;
+    if (result.usage) output.append(node("p", "cost-note", `Token riportati dal servizio: ${result.usage.input_tokens ?? "—"} input · ${result.usage.output_tokens ?? "—"} output. La cache dei candidati può ridurre i token valutati.`));
+    if (result.health_check_ms != null) output.append(node("p", "cost-note", `Verifica preliminare del servizio: ${Math.round(result.health_check_ms)} ms, esclusa dal tempo di classificazione.`));
+    if (result.note) output.append(node("p", "cost-note", result.note));
+    $("clm-state").textContent = result.status === "unavailable" ? "Servizio non disponibile" : "Servizio raggiungibile";
+  }
   if (result.cost?.note) output.append(node("p", "cost-note", result.cost.note));
   $(`${provider}-card`).setAttribute("aria-busy", "false"); results[provider] = result; $("response-json").textContent = JSON.stringify(results, null, 2); agreement();
 }
 function setBusy(value) {
   busy = value;
   document.querySelectorAll("#compare-form input, #compare-form textarea, #compare-form select, #compare-form button, [data-example]").forEach((el) => { el.disabled = value; });
-  $("run").firstElementChild.textContent = value ? "Confronto in corso…" : "Confronta i modelli"; updateClassButtons();
+  $("run").firstElementChild.textContent = value ? "Confronto in corso…" : "Confronta i modelli"; updateClassButtons(); updateCLMRate();
 }
 async function runProvider(provider, prepared, apiKey, tier) {
   try {
-    const body = provider === "rizzo" ? prepared : provider === "gemini" ? {case: prepared, billing_tier: tier} : {case: prepared, model: tier};
-    const headers = provider === "rizzo" ? {} : provider === "gemini" ? {"X-Gemini-API-Key": apiKey} : {"X-Liquid-API-Key": apiKey};
+    const body = provider === "rizzo" ? prepared : provider === "gemini" ? {case: prepared, billing_tier: tier} : provider === "liquid" ? {case: prepared, model: tier} : {case: prepared, ...tier};
+    const headers = provider === "rizzo" ? {} : provider === "gemini" ? {"X-Gemini-API-Key": apiKey} : provider === "liquid" ? {"X-Liquid-API-Key": apiKey} : {"X-CLM-API-Key": apiKey};
     renderProvider(provider, await post(`/api/classify/${provider}`, body, headers));
   }
   catch (error) { renderProvider(provider, {status: "error", classification: null, latency_ms: null, cost: {usd: null}, error: error.name === "TimeoutError" ? "Timeout: la richiesta può essere ancora in corso nel backend. Il costo non è determinabile." : error instanceof TypeError ? "Server locale non raggiungibile. Controlla il terminale." : error.message}); }
@@ -138,6 +145,8 @@ $("compare-form").addEventListener("submit", async (event) => {
   if (new Set(input.classes.map((item) => item.label.toLocaleLowerCase())).size !== input.classes.length) { showError("Le classi devono avere nomi distinti."); return; }
   const apiKey = $("api-key").value.trim(), tier = $("billing-tier").value;
   const liquidKey = $("liquid-api-key").value.trim(), liquidModel = $("liquid-model-select").value;
+  const clmKey = $("clm-api-key").value.trim(), clmSettings = {base_url: $("clm-url").value.trim(), billing_mode: $("clm-billing-mode").value,
+    input_per_million_usd: $("clm-billing-mode").value === "per_token" && $("clm-rate").value !== "" ? Number($("clm-rate").value) : null};
   showError(""); setBusy(true); results = {}; inputChanged = false;
   $("agreement").textContent = "Preparazione del contesto…"; $("agreement").className = "agreement"; $("response-json").textContent = "Confronto in corso…";
   for (const provider of providers) { $(`${provider}-result`).replaceChildren(node("p", "empty-text", "Preparazione dell'input…")); $(`${provider}-card`).setAttribute("aria-busy", "true"); }
@@ -145,9 +154,9 @@ $("compare-form").addEventListener("submit", async (event) => {
     const prepared = await post("/api/prepare", {...input, attachments: await Promise.all(attachments.map(readFile))}); hasRun = true;
     $("request-json").textContent = JSON.stringify(prepared.case, null, 2); $("preparation").textContent = `ESTRAZIONE E PREPARAZIONE · ${Math.round(prepared.preparation_ms)} ms`;
     $("result-context").textContent = `Domanda: ${input.question} · ${prepared.files.length} file · le chiamate partono in parallelo.`; $("agreement").textContent = "Confronto in corso…";
-    const pending = {rizzo: "Rizzo Flow sta valutando le classi…", gemini: apiKey ? "Gemini sta classificando il contenuto…" : "API key non impostata.", liquid: liquidKey ? "Liquid AI sta valutando le classi…" : "API key non impostata."};
+    const pending = {rizzo: "Rizzo Flow sta valutando le classi…", gemini: apiKey ? "Gemini sta classificando il contenuto…" : "API key non impostata.", liquid: liquidKey ? "Liquid AI sta valutando le classi…" : "API key non impostata.", clm: "Verifica del servizio CLM e classificazione…"};
     for (const provider of providers) $(`${provider}-result`).replaceChildren(node("p", "empty-text", pending[provider]));
-    await Promise.all([runProvider("rizzo", prepared.case), runProvider("gemini", prepared.case, apiKey, tier), runProvider("liquid", prepared.case, liquidKey, liquidModel)]);
+    await Promise.all([runProvider("rizzo", prepared.case), runProvider("gemini", prepared.case, apiKey, tier), runProvider("liquid", prepared.case, liquidKey, liquidModel), runProvider("clm", prepared.case, clmKey, clmSettings)]);
   } catch (error) {
     showError(error.message); $("agreement").textContent = "Input non elaborato";
     for (const provider of providers) { $(`${provider}-result`).replaceChildren(node("p", "empty-text", "Classificazione non avviata.")); $(`${provider}-card`).setAttribute("aria-busy", "false"); }
@@ -156,11 +165,27 @@ $("compare-form").addEventListener("submit", async (event) => {
 $("compare-form").addEventListener("input", (event) => {
   if (event.target.id === "api-key") $("key-state").textContent = $("api-key").value.trim() ? "API key impostata" : "API key da impostare";
   else if (event.target.id === "liquid-api-key") $("liquid-key-state").textContent = $("liquid-api-key").value.trim() ? "API key impostata" : "API key da impostare";
+  else if (event.target.id === "clm-api-key") $("clm-state").textContent = "Chiave modificata · verifica servizio";
   else if (event.target.id !== "files") dirty();
 });
 $("add-class").addEventListener("click", () => { if (!busy) { addClass(); dirty(); } });
 $("show-key").addEventListener("click", () => { const show = $("api-key").type === "password"; $("api-key").type = show ? "text" : "password"; $("show-key").textContent = show ? "Nascondi" : "Mostra"; $("show-key").setAttribute("aria-label", show ? "Nascondi API key" : "Mostra API key"); });
 $("show-liquid-key").addEventListener("click", () => { const show = $("liquid-api-key").type === "password"; $("liquid-api-key").type = show ? "text" : "password"; $("show-liquid-key").textContent = show ? "Nascondi" : "Mostra"; $("show-liquid-key").setAttribute("aria-label", show ? "Nascondi API key Liquid" : "Mostra API key Liquid"); });
+$("show-clm-key").addEventListener("click", () => { const show = $("clm-api-key").type === "password"; $("clm-api-key").type = show ? "text" : "password"; $("show-clm-key").textContent = show ? "Nascondi" : "Mostra"; $("show-clm-key").setAttribute("aria-label", show ? "Nascondi API key CLM" : "Mostra API key CLM"); });
+function updateCLMRate() { $("clm-rate").disabled = busy || $("clm-billing-mode").value !== "per_token"; $("clm-rate").required = $("clm-billing-mode").value === "per_token"; }
+$("clm-billing-mode").addEventListener("change", updateCLMRate);
+async function checkCLM() {
+  const url = $("clm-url").value.trim(); $("check-clm").disabled = true; $("clm-state").textContent = "Verifica in corso…";
+  try {
+    const result = await post("/api/clm/health", {base_url: url}, {"X-CLM-API-Key": $("clm-api-key").value.trim()});
+    if (url !== $("clm-url").value.trim()) return;
+    $("clm-state").textContent = result.status === "ready" ? "CLM pronto" : "Servizio non disponibile";
+    $("clm-health-note").textContent = result.status === "ready" ? `${result.runtime}. CLM e encoder pronti.${result.max_tokens ? ` Limite: ${result.max_tokens} token per testo.` : ""}` : result.error;
+  } catch (error) { $("clm-state").textContent = "Verifica non completata"; $("clm-health-note").textContent = error.message; }
+  finally { $("check-clm").disabled = busy; }
+}
+$("check-clm").addEventListener("click", checkCLM);
+$("clm-url").addEventListener("input", () => { $("clm-state").textContent = "Indirizzo modificato · verifica servizio"; });
 document.querySelectorAll("[data-example]").forEach((button) => button.addEventListener("click", () => loadExample(button.dataset.example)));
 $("files").addEventListener("change", () => {
   const candidate = [...attachments]; [...$("files").files].forEach((file) => { if (!candidate.some((item) => item.name === file.name && item.size === file.size && item.lastModified === file.lastModified)) candidate.push(file); });
@@ -179,5 +204,6 @@ async function init() {
     $("pricing").textContent = `Standard: $${config.pricing.input_per_million_usd.toFixed(2)}/M token input · $${config.pricing.output_per_million_usd.toFixed(2)}/M output e ragionamento. Tariffe verificate ${config.pricing.checked_on}.`;
     $("liquid-pricing").textContent = `d1: $${config.liquid_pricing.input_per_million_usd.toFixed(2)}/M token input · output gratuito. d1:free: $0, se disponibile. Tariffe verificate ${config.liquid_pricing.checked_on}.`;
   } catch { $("pricing").textContent = "Tariffe non caricate. Riavvia la demo aggiornata con start.ps1."; }
+  updateCLMRate(); checkCLM();
 }
 init();

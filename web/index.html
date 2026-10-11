@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Rizzo Flow · Gemini · Liquid AI · Confronto classificazione</title>
+  <title>Rizzo Flow · Gemini · Liquid AI · CLM · Confronto classificazione</title>
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="/assets/style.css">
   <script src="/assets/demo.js" defer></script>
@@ -13,8 +13,8 @@
     <header><a class="brand" href="/">rizzo<span>flow</span><small>MODEL COMPARISON</small></a><span id="connection" class="connection">Connessione…</span></header>
     <section class="intro">
       <p class="eyebrow">DECISIONI LOCALI · DECISIONI CLOUD · GENERAZIONE LLM</p>
-      <h1>Un input. Tre modelli.</h1>
-      <p class="lead">Confronta Rizzo Flow, Gemini 3.5 Flash-Lite e Liquid AI d1 sulla stessa domanda,<br>con lo stesso contesto e le stesse classi.</p>
+      <h1>Un input. Quattro modelli.</h1>
+      <p class="lead">Confronta Rizzo Flow, Gemini 3.5 Flash-Lite, Liquid AI d1 e CLM-8B sulla stessa domanda,<br>con lo stesso contesto e le stesse classi.</p>
     </section>
     <section class="panel" aria-labelledby="input-title">
       <div class="panel-heading"><h2 id="input-title">01 <span>Prepara il confronto</span></h2><div class="presets"><button type="button" data-example="ticket">Ticket</button><button type="button" data-example="sentiment">Sentiment</button><button type="button" data-example="document">Documenti</button></div></div>
@@ -54,9 +54,25 @@
               <select id="liquid-model-select"><option value="d1">d1 · stima del costo dai token utilizzati</option><option value="d1:free">d1:free · se disponibile per la mia chiave</option></select>
               <p id="liquid-pricing" class="hint">Liquid AI d1 · caricamento tariffe…</p>
             </details>
+            <details id="clm-settings" class="settings" open>
+              <summary>Impostazioni CLM <span id="clm-state">Servizio da verificare</span></summary>
+              <label for="clm-url">Indirizzo del servizio CLM</label>
+              <input id="clm-url" type="url" value="http://127.0.0.1:8700" required maxlength="2048" placeholder="https://il-tuo-servizio-clm">
+              <p class="hint">URL base di clm-serve, sul tuo computer o su un server HTTPS. Usa il checkpoint CLM-v0.1-8B con l'encoder Qwen3-8B.</p>
+              <label for="clm-api-key">API key CLM <span class="optional">solo se richiesta dal tuo servizio</span></label>
+              <div class="key-row"><input id="clm-api-key" type="password" autocomplete="off" spellcheck="false" maxlength="256" placeholder="Facoltativa"><button id="show-clm-key" type="button" class="secondary" aria-label="Mostra API key CLM">Mostra</button></div>
+              <p class="hint">La chiave resta solo in memoria nella pagina.</p>
+              <button id="check-clm" type="button" class="secondary">Verifica servizio CLM</button>
+              <p id="clm-health-note" class="hint" role="status">Il servizio locale parte con start.ps1 dopo l'installazione iniziale tramite start-clm.ps1 -Install.</p>
+              <label for="clm-billing-mode">Costo del servizio CLM</label>
+              <select id="clm-billing-mode"><option value="self_hosted">Autogestito · $0 API, hosting escluso</option><option value="unknown">Servizio esterno · tariffa non nota</option><option value="per_token">Tariffa del mio hosting per token</option></select>
+              <label for="clm-rate">USD per milione di token input</label>
+              <input id="clm-rate" type="number" min="0" max="100000" step="any" placeholder="Inserisci solo se previsto dal tuo hosting" disabled>
+              <p class="hint">Probabilità relative alle classi, non certezza calibrata. Il runner locale rifiuta testi oltre 8192 token; i limiti dei server esterni dipendono dalla configurazione. <a href="https://github.com/Contrastive-LM/CLM#quickstart" target="_blank" rel="noreferrer">Servizio CLM ↗</a></p>
+            </details>
           </div>
         </div>
-        <div class="submit-row"><p class="hint">Con una chiave impostata, il confronto invia domanda, contesto e testo estratto dai file al relativo servizio: Google o Liquid AI.<br>Tutti i modelli ricevono lo stesso contenuto testuale; i file non vengono conservati dalla demo.</p><button id="run" class="run" type="submit"><span>Confronta i modelli</span><span aria-hidden="true">↗</span></button></div>
+        <div class="submit-row"><p class="hint">Il confronto invia domanda, contesto e testo estratto dai file a CLM all'indirizzo impostato e, con una chiave presente, a Google o Liquid AI.<br>Tutti i modelli ricevono lo stesso contenuto testuale; i file non vengono conservati dalla demo.</p><button id="run" class="run" type="submit"><span>Confronta i modelli</span><span aria-hidden="true">↗</span></button></div>
       </form>
       <p id="error" role="alert" hidden></p>
     </section>
@@ -79,15 +95,20 @@
           <p id="gemini-model" class="model-label">gemini-3.5-flash-lite · thinking minimal</p>
           <div id="gemini-result" class="provider-result" aria-live="polite"><p class="empty-text">Imposta la API key per confrontare Gemini.</p></div>
         </article>
+        <article id="clm-card" class="panel provider-card clm" aria-busy="false">
+          <div class="provider-heading"><h3>CLM</h3><span class="provider-tag">SERVIZIO · CONTRASTIVE</span></div>
+          <p id="clm-model" class="model-label">CLM-v0.1-8B · clm-latest</p>
+          <div id="clm-result" class="provider-result" aria-live="polite"><p class="empty-text">Configura e avvia il servizio CLM per confrontarlo.</p></div>
+        </article>
       </div>
-      <p class="comparison-note">Tempi misurati nel backend, da avvio chiamata a risposta validata; Gemini e Liquid includono la rete verso il servizio. Estrazione dei file esclusa e misurata separatamente. Rizzo Flow e Liquid non generano testo: le probabilità di Rizzo non sono calibrate, Liquid le dichiara calibrate. Gemini restituisce una classe, senza probabilità confrontabili.</p>
+      <p class="comparison-note">Tempi misurati nel backend, da avvio chiamata a risposta validata; le API includono la rete verso il servizio. Estrazione dei file e verifica preliminare CLM escluse e misurate separatamente. Rizzo Flow, Liquid e CLM non generano testo: le probabilità di Rizzo e CLM non sono calibrate, Liquid le dichiara calibrate. Gemini restituisce una classe, senza probabilità confrontabili. Cache e limiti di contesto dei servizi possono influenzare il confronto.</p>
     </section>
     <section class="api-panel" aria-label="Dettagli del confronto">
       <div class="api-heading"><h2>Dentro il confronto</h2><span id="preparation" class="tag">STESSO INPUT PER TUTTI</span></div>
       <details><summary>Input condiviso e testo estratto</summary><pre id="request-json"></pre></details>
       <details><summary>Risultati e dettaglio costi</summary><pre id="response-json">Esegui il confronto per vedere le risposte.</pre></details>
     </section>
-    <footer><span>Rizzo Flow × Gemini 3.5 Flash-Lite × Liquid AI d1</span><nav aria-label="Risorse"><a href="/playground">Playground Rizzo ↗</a><a href="/docs">API locale ↗</a><a href="https://ai.google.dev/gemini-api/docs/pricing" target="_blank" rel="noreferrer">Tariffe Gemini ↗</a><a href="https://www.liquid.ai/blog/d1-decision-model" target="_blank" rel="noreferrer">Liquid d1 ↗</a></nav></footer>
+    <footer><span>Rizzo Flow × Gemini × Liquid AI × CLM</span><nav aria-label="Risorse"><a href="/playground">Playground Rizzo ↗</a><a href="/docs">API locale ↗</a><a href="https://ai.google.dev/gemini-api/docs/pricing" target="_blank" rel="noreferrer">Tariffe Gemini ↗</a><a href="https://www.liquid.ai/blog/d1-decision-model" target="_blank" rel="noreferrer">Liquid d1 ↗</a><a href="https://huggingface.co/Contrastive-LM/CLM-v0.1-8B" target="_blank" rel="noreferrer">CLM-v0.1-8B ↗</a></nav></footer>
   </main>
 </body>
 </html>
