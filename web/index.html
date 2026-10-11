@@ -40,7 +40,9 @@
               <summary>Impostazioni Gemini <span id="key-state">API key da impostare</span></summary>
               <label for="api-key">API key Gemini</label>
               <div class="key-row"><input id="api-key" type="password" autocomplete="off" spellcheck="false" maxlength="256" placeholder="Inserisci la tua API key"><button id="show-key" type="button" class="secondary" aria-label="Mostra API key">Mostra</button></div>
-              <p class="hint">Resta in memoria nella pagina: non viene salvata sul server o nel browser. <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">Crea una chiave ↗</a></p>
+              <div class="key-actions"><button id="save-gemini-key" type="button" class="secondary">Salva su questo browser</button><button id="clear-gemini-key" type="button" class="secondary">Rimuovi chiave</button></div>
+              <p id="gemini-storage-state" class="hint" role="status">Chiave non salvata.</p>
+              <p class="hint">Il salvataggio è facoltativo: la chiave resta nel browser, non cifrata, anche dopo la chiusura. <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">Crea una chiave ↗</a></p>
               <label for="billing-tier">Piano API associato alla chiave</label>
               <select id="billing-tier"><option value="paid">A pagamento · stima dai token utilizzati</option><option value="free">Gratuito · selezionato da me</option></select>
               <p id="pricing" class="hint">Gemini 3.5 Flash-Lite · caricamento tariffe…</p>
@@ -49,7 +51,9 @@
               <summary>Impostazioni Liquid AI <span id="liquid-key-state">API key da impostare</span></summary>
               <label for="liquid-api-key">API key Liquid AI</label>
               <div class="key-row"><input id="liquid-api-key" type="password" autocomplete="off" spellcheck="false" maxlength="256" placeholder="Inserisci la tua API key Liquid"><button id="show-liquid-key" type="button" class="secondary" aria-label="Mostra API key Liquid">Mostra</button></div>
-              <p class="hint">Resta solo in memoria nella pagina, come la chiave Gemini. <a href="https://console.liquid.ai" target="_blank" rel="noreferrer">Crea una chiave · Dashboard → API Keys ↗</a></p>
+              <div class="key-actions"><button id="save-liquid-key" type="button" class="secondary">Salva su questo browser</button><button id="clear-liquid-key" type="button" class="secondary">Rimuovi chiave</button></div>
+              <p id="liquid-storage-state" class="hint" role="status">Chiave non salvata.</p>
+              <p class="hint">Il salvataggio è facoltativo: la chiave resta nel browser, non cifrata, anche dopo la chiusura. <a href="https://console.liquid.ai" target="_blank" rel="noreferrer">Crea una chiave · Dashboard → API Keys ↗</a></p>
               <label for="liquid-model-select">Modello Liquid</label>
               <select id="liquid-model-select"><option value="d1">d1 · stima del costo dai token utilizzati</option><option value="d1:free">d1:free · se disponibile per la mia chiave</option></select>
               <p id="liquid-pricing" class="hint">Liquid AI d1 · caricamento tariffe…</p>
@@ -61,7 +65,9 @@
               <p class="hint">URL base di clm-serve, sul tuo computer o su un server HTTPS. Usa il checkpoint CLM-v0.1-8B con l'encoder Qwen3-8B.</p>
               <label for="clm-api-key">API key CLM <span class="optional">solo se richiesta dal tuo servizio</span></label>
               <div class="key-row"><input id="clm-api-key" type="password" autocomplete="off" spellcheck="false" maxlength="256" placeholder="Facoltativa"><button id="show-clm-key" type="button" class="secondary" aria-label="Mostra API key CLM">Mostra</button></div>
-              <p class="hint">La chiave resta solo in memoria nella pagina.</p>
+              <div class="key-actions"><button id="save-clm-key" type="button" class="secondary">Salva su questo browser</button><button id="clear-clm-key" type="button" class="secondary">Rimuovi chiave</button></div>
+              <p id="clm-storage-state" class="hint" role="status">Chiave non salvata.</p>
+              <p class="hint">Salva anche l'indirizzo CLM associato. La chiave resta nel browser, non cifrata, anche dopo la chiusura.</p>
               <button id="check-clm" type="button" class="secondary">Verifica servizio CLM</button>
               <p id="clm-health-note" class="hint" role="status">Il servizio locale parte con start.ps1 dopo l'installazione iniziale tramite start-clm.ps1 -Install.</p>
               <label for="clm-billing-mode">Costo del servizio CLM</label>

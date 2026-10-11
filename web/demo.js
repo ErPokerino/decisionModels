@@ -19,6 +19,59 @@ const examples = {
   ]}
 };
 let busy = false, attachments = [], results = {}, hasRun = false, inputChanged = false;
+const keySettings = [
+  {provider: "gemini", input: "api-key", state: "key-state", toggle: "show-key"},
+  {provider: "liquid", input: "liquid-api-key", state: "liquid-key-state", toggle: "show-liquid-key"},
+  {provider: "clm", input: "clm-api-key", state: "clm-state", toggle: "show-clm-key"}
+];
+function initSavedKeys() {
+  for (const setting of keySettings) {
+    const {provider, input, state, toggle} = setting;
+    const storageKey = `decisionModels.apiKey.v1.${provider}`;
+    const field = $(input), message = $(`${provider}-storage-state`);
+    let saved = null;
+    const current = () => ({key: field.value.trim(), ...(provider === "clm" ? {base_url: $("clm-url").value.trim()} : {})});
+    const update = () => {
+      const value = current();
+      message.textContent = saved && value.key === saved.key && value.base_url === saved.base_url
+        ? "Chiave salvata su questo browser."
+        : saved ? "Modifiche non salvate · premi Salva per aggiornare la chiave memorizzata."
+        : "Chiave non salvata · resta solo in questa pagina.";
+      if (provider !== "clm") $(state).textContent = value.key ? "API key impostata" : "API key da impostare";
+    };
+    try {
+      const stored = localStorage.getItem(storageKey);
+      if (stored !== null) {
+        const value = JSON.parse(stored);
+        if (!value || typeof value.key !== "string" || !value.key.trim() || value.key.length > field.maxLength ||
+            (provider === "clm" && (typeof value.base_url !== "string" || !value.base_url || value.base_url.length > 2048))) throw new Error();
+        saved = value; field.value = value.key;
+        if (provider === "clm") $("clm-url").value = value.base_url;
+      }
+      update();
+    } catch { message.textContent = "Chiave salvata non leggibile. Puoi reinserirla o rimuoverla."; }
+    field.addEventListener("input", update);
+    if (provider === "clm") $("clm-url").addEventListener("input", update);
+    $(`save-${provider}-key`).addEventListener("click", () => {
+      if (busy) return;
+      const value = current();
+      if (!value.key) { message.textContent = "Inserisci una chiave da salvare."; return; }
+      if (provider === "clm" && !$("clm-url").reportValidity()) return;
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(value)); saved = value; field.value = value.key; update();
+      } catch { message.textContent = "Salvataggio non riuscito: il browser non consente la memorizzazione. La chiave resta in questa pagina."; }
+    });
+    $(`clear-${provider}-key`).addEventListener("click", () => {
+      if (busy) return;
+      try { localStorage.removeItem(storageKey); }
+      catch { message.textContent = "Rimozione non riuscita: il browser non consente l'accesso alla memoria locale."; return; }
+      saved = null; field.value = ""; field.type = "password";
+      $(toggle).textContent = "Mostra"; $(toggle).setAttribute("aria-label", `Mostra API key ${provider === "liquid" ? "Liquid" : provider === "clm" ? "CLM" : "Gemini"}`);
+      update(); message.textContent = "Chiave rimossa dalla pagina e da questo browser.";
+      if (provider === "clm") $(state).textContent = "Chiave rimossa · verifica servizio";
+    });
+  }
+}
 function node(tag, className, text) {
   const el = document.createElement(tag);
   if (className) el.className = className;
@@ -193,6 +246,7 @@ $("files").addEventListener("change", () => {
   else { attachments = candidate; showError(""); renderFiles(); dirty(); } $("files").value = "";
 });
 async function init() {
+  initSavedKeys();
   loadExample("ticket");
   try {
     const response = await fetch("/health", {signal: AbortSignal.timeout(5000)}), data = await response.json();
